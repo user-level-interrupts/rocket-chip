@@ -1,3 +1,63 @@
+## Quick Setup with AWS
+
+### AWS Instance
+
+This MUST run with Ubuntu, and has only been tested on 18.04. Fedora/RedHat requires some different dependencies that we were not able to easily install/debug.
+
+Recommended minimum requirements:
+* t2.medium
+* 30 GiB EBS storage (~20-25 used for basic installation)
+
+[Instructions to connect to AWS Linux instance via ssh](https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/AccessingInstancesLinux.html)
+
+### rocket-chip
+
+Start by checking out the code and linking it to the upstream repo:
+
+    $ git clone https://github.com/user-level-interrupts/rocket-chip.git
+    $ cd rocket-chip
+    $ git remote add upstream https://github.com/chipsalliance/rocket-chip.git
+    $ git fetch upstream
+    $ git rebase upstream/master
+    $ git submodule update --init
+    
+Set an environment variable ROCKETCHIP to the rocket-chip directory.
+
+You may also need to install Java and symlink Python for Verilator to work:
+
+    $ sudo apt install default-jre
+    $ sudo ln -s /usr/bin/python3 /usr/bin/python
+
+### rocket-tools
+
+Start by installing the necessary dependencies.
+
+    $ sudo apt-get update
+    $ sudo apt-get install autoconf automake autotools-dev curl libmpc-dev libmpfr-dev libgmp-dev libusb-1.0-0-dev gawk build-essential bison flex texinfo gperf libtool patchutils bc zlib1g-dev device-tree-compiler pkg-config libexpat-dev libfl-dev
+    
+Checkout the code:
+
+    $ git clone https://github.com/user-level-interrupts/rocket-tools.git
+    $ cd rocket-tools
+    $ git submodule update --init --recursive
+
+Set an environment variable RISCV to your desired install path, e.g.
+
+    $ export RISCV=/home/ubuntu/riscv
+
+Run the build:
+
+    $ ./build.sh
+
+Note that the git submodule update and build commands may take an hour or more each to run.
+
+### Run the simulator
+
+    $ make -jN run
+
+where N is the number of cores on your machine. More details on compiling and testing the simulator are listed below.
+
+=====================
 Rocket Chip Generator :rocket: [![Build Status](https://travis-ci.org/chipsalliance/rocket-chip.svg?branch=master)](https://travis-ci.org/chipsalliance/rocket-chip)
 =====================
 
