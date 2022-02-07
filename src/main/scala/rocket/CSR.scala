@@ -154,12 +154,12 @@ object CSR
   // commands
   val SZ = 3
   def X = BitPat.dontCare(SZ)
-  def N = UInt(0,SZ)
-  def R = UInt(2,SZ)
-  def I = UInt(4,SZ)
-  def W = UInt(5,SZ)
-  def S = UInt(6,SZ)
-  def C = UInt(7,SZ)
+  def N = UInt(0,SZ)  // NOP
+  def R = UInt(2,SZ)  // read
+  def I = UInt(4,SZ)  // 
+  def W = UInt(5,SZ)  // write
+  def S = UInt(6,SZ)  // set
+  def C = UInt(7,SZ)  // clear
 
   // mask a CSR cmd with a valid bit
   def maskCmd(valid: Bool, cmd: UInt): UInt = {
@@ -479,6 +479,7 @@ class CSRFile(
     case Some(addr) => Reg(init=UInt(addr, mtvecWidth))
     case None => Reg(UInt(width = mtvecWidth))
   }
+  val reg_pid = Reg(UInt(width = xLen))
 
   val reset_mnstatus = Wire(init=new MNStatus().fromBits(0))
   reset_mnstatus.mpp := PRV.M
@@ -621,6 +622,7 @@ class CSRFile(
     CSRs.mepc -> readEPC(reg_mepc).sextTo(xLen),
     CSRs.mtval -> reg_mtval.sextTo(xLen),
     CSRs.mcause -> reg_mcause,
+    CSRs.pid -> reg_pid,
     CSRs.mhartid -> io.hartid)
 
   val debug_csrs = if (!usingDebug) LinkedHashMap() else LinkedHashMap[Int,Bits](

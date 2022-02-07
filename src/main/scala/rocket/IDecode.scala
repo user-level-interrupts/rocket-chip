@@ -17,33 +17,33 @@ abstract trait DecodeConstants extends HasCoreParameters
 }
 
 class IntCtrlSigs extends Bundle {
-  val legal = Bool()
-  val fp = Bool()
+  val legal = Bool()  // Y for all instructions
+  val fp = Bool()     // floating-point
   val rocc = Bool()
   val branch = Bool()
   val jal = Bool()
   val jalr = Bool()
-  val rxs2 = Bool()
-  val rxs1 = Bool()
+  val rxs2 = Bool()   // if rs2 in instruction format
+  val rxs1 = Bool()   // if rs1 in instruction format
   val scie = Bool()
-  val sel_alu2 = Bits(width = A2_X.getWidth)
-  val sel_alu1 = Bits(width = A1_X.getWidth)
-  val sel_imm = Bits(width = IMM_X.getWidth)
-  val alu_dw = Bool()
+  val sel_alu2 = Bits(width = A2_X.getWidth)  // ALU input 2
+  val sel_alu1 = Bits(width = A1_X.getWidth)  // ALU input 1
+  val sel_imm = Bits(width = IMM_X.getWidth)  // select instruction format
+  val alu_dw = Bool() // double word
   val alu_fn = Bits(width = FN_X.getWidth)
-  val mem = Bool()
-  val mem_cmd = Bits(width = M_SZ)
-  val rfs1 = Bool()
+  val mem = Bool()    // memory operation
+  val mem_cmd = Bits(width = M_SZ)  
+  val rfs1 = Bool()   // floating point registers
   val rfs2 = Bool()
   val rfs3 = Bool()
-  val wfd = Bool()
+  val wfd = Bool()    // 
   val mul = Bool()
   val div = Bool()
-  val wxd = Bool()
+  val wxd = Bool()    // 
   val csr = Bits(width = CSR.SZ)
   val fence_i = Bool()
   val fence = Bool()
-  val amo = Bool()
+  val amo = Bool()    // atomic memory operation
   val dp = Bool()
 
   def default: List[BitPat] =
@@ -120,7 +120,9 @@ class IDecode(implicit val p: Parameters) extends DecodeConstants
     CSRRC->     List(Y,N,N,N,N,N,N,Y,N,A2_ZERO,A1_RS1, IMM_X, DW_XPR,FN_ADD,   N,M_X,        N,N,N,N,N,N,Y,CSR.C,N,N,N,N),
     CSRRWI->    List(Y,N,N,N,N,N,N,N,N,A2_IMM, A1_ZERO,IMM_Z, DW_XPR,FN_ADD,   N,M_X,        N,N,N,N,N,N,Y,CSR.W,N,N,N,N),
     CSRRSI->    List(Y,N,N,N,N,N,N,N,N,A2_IMM, A1_ZERO,IMM_Z, DW_XPR,FN_ADD,   N,M_X,        N,N,N,N,N,N,Y,CSR.S,N,N,N,N),
-    CSRRCI->    List(Y,N,N,N,N,N,N,N,N,A2_IMM, A1_ZERO,IMM_Z, DW_XPR,FN_ADD,   N,M_X,        N,N,N,N,N,N,Y,CSR.C,N,N,N,N))
+    CSRRCI->    List(Y,N,N,N,N,N,N,N,N,A2_IMM, A1_ZERO,IMM_Z, DW_XPR,FN_ADD,   N,M_X,        N,N,N,N,N,N,Y,CSR.C,N,N,N,N),
+
+    SPID->      List(Y,N,N,N,N,N,N,N,N,A2_IMM, A1_ZERO,IMM_X, DW_X,  FN_X,     N,M_X,        N,N,N,N,N,N,Y,CSR.I,N,N,N,N))
 }
 
 class FenceIDecode(flushDCache: Boolean)(implicit val p: Parameters) extends DecodeConstants
