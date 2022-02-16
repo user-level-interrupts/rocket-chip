@@ -813,13 +813,11 @@ class CSRFile(
 
   val wdata = readModifyWriteCSR(io.rw.cmd, io.rw.rdata, io.rw.wdata)
 
-  // added spid to system instructions for now
   val system_insn = io.rw.cmd === CSR.I
   val hlsv = Seq(HLV_B, HLV_BU, HLV_H, HLV_HU, HLV_W, HLV_WU, HLV_D, HSV_B, HSV_H, HSV_W, HSV_D, HLVX_HU, HLVX_WU)
   val decode_table = Seq(        SCALL->       List(Y,N,N,N,N,N,N,N,N),
                                  SBREAK->      List(N,Y,N,N,N,N,N,N,N),
                                  MRET->        List(N,N,Y,N,N,N,N,N,N),
-                                 SPID->        List(N,N,N,N,N,N,N,N,N),
                                  CEASE->       List(N,N,N,Y,N,N,N,N,N),
                                  WFI->         List(N,N,N,N,Y,N,N,N,N)) ++
     usingDebug.option(           DRET->        List(N,N,Y,N,N,N,N,N,N)) ++
@@ -830,7 +828,7 @@ class CSRFile(
     usingHypervisor.option(      HFENCE_VVMA-> List(N,N,N,N,N,N,Y,N,N)) ++
     usingHypervisor.option(      HFENCE_GVMA-> List(N,N,N,N,N,N,N,Y,N)) ++
     (if (usingHypervisor)        hlsv.map(_->  List(N,N,N,N,N,N,N,N,Y)) else Seq())
-  val insn_call :: insn_break :: insn_ret :: insn_spid :: insn_cease :: insn_wfi :: _ :: _ :: _ :: _ :: Nil =
+  val insn_call :: insn_break :: insn_ret :: insn_cease :: insn_wfi :: _ :: _ :: _ :: _ :: Nil =
     DecodeLogic(io.rw.addr << 20, decode_table(0)._2.map(x=>X), decode_table).map(system_insn && _.asBool)
 
   for (io_dec <- io.decode) {
@@ -1092,11 +1090,6 @@ class CSRFile(
     }
   }
 
-  // added to support special instruction spid
-  when (insn_spid) {
-    reg_pid := wdata
-  }
-
   io.time := reg_cycle
   io.csr_stall := reg_wfi || io.status.cease
   io.status.cease := RegEnable(true.B, false.B, insn_cease)
@@ -1231,6 +1224,9 @@ class CSRFile(
         reg_rnmie := reg_rnmie | new_mnstatus.mie  // mnie bit settable but not clearable from software
       }
     }
+
+    // Added for new pid register
+    when (decoded_addr(CSRs.pid))    { reg_pid := wdata }
 
     for (((e, c), i) <- (reg_hpmevent zip reg_hpmcounter) zipWithIndex) {
       writeCounter(i + CSR.firstMHPC, c, wdata)
