@@ -27,6 +27,7 @@ object DecodeLogic
         assert(!t.head._2.intersects(u._2), "DecodeLogic: keys " + t.head + " and " + u + " overlap")
 
     Cat((0 until default.getWidth.max(values.map(_.getWidth).max)).map({ case (i: Int) =>
+      // k-map/QMC minterms, maxterms, don't cares
       val mint = termvalues.filter { case (k,t) => ((t.mask >> i) & 1) == 0 && ((t.value >> i) & 1) == 1 }.map(_._1)
       val maxt = termvalues.filter { case (k,t) => ((t.mask >> i) & 1) == 0 && ((t.value >> i) & 1) == 0 }.map(_._1)
       val dc = termvalues.filter { case (k,t) => ((t.mask >> i) & 1) == 1 }.map(_._1)

@@ -156,7 +156,7 @@ object CSR
   def X = BitPat.dontCare(SZ)
   def N = UInt(0,SZ)  // NOP
   def R = UInt(2,SZ)  // read
-  def I = UInt(4,SZ)  // 
+  def I = UInt(4,SZ)  // reserved for system instructions 
   def W = UInt(5,SZ)  // write
   def S = UInt(6,SZ)  // set
   def C = UInt(7,SZ)  // clear
@@ -479,6 +479,7 @@ class CSRFile(
     case Some(addr) => Reg(init=UInt(addr, mtvecWidth))
     case None => Reg(UInt(width = mtvecWidth))
   }
+  // process ID register
   val reg_pid = Reg(UInt(width = xLen))
 
   val reset_mnstatus = Wire(init=new MNStatus().fromBits(0))
@@ -812,11 +813,13 @@ class CSRFile(
 
   val wdata = readModifyWriteCSR(io.rw.cmd, io.rw.rdata, io.rw.wdata)
 
+  // added spid to system instructions for now
   val system_insn = io.rw.cmd === CSR.I
   val hlsv = Seq(HLV_B, HLV_BU, HLV_H, HLV_HU, HLV_W, HLV_WU, HLV_D, HSV_B, HSV_H, HSV_W, HSV_D, HLVX_HU, HLVX_WU)
   val decode_table = Seq(        SCALL->       List(Y,N,N,N,N,N,N,N,N),
                                  SBREAK->      List(N,Y,N,N,N,N,N,N,N),
                                  MRET->        List(N,N,Y,N,N,N,N,N,N),
+                                 SPID->        List(N,N,N,N,N,N,N,N,N),
                                  CEASE->       List(N,N,N,Y,N,N,N,N,N),
                                  WFI->         List(N,N,N,N,Y,N,N,N,N)) ++
     usingDebug.option(           DRET->        List(N,N,Y,N,N,N,N,N,N)) ++
@@ -827,7 +830,7 @@ class CSRFile(
     usingHypervisor.option(      HFENCE_VVMA-> List(N,N,N,N,N,N,Y,N,N)) ++
     usingHypervisor.option(      HFENCE_GVMA-> List(N,N,N,N,N,N,N,Y,N)) ++
     (if (usingHypervisor)        hlsv.map(_->  List(N,N,N,N,N,N,N,N,Y)) else Seq())
-  val insn_call :: insn_break :: insn_ret :: insn_cease :: insn_wfi :: _ :: _ :: _ :: _ :: Nil =
+  val insn_call :: insn_break :: insn_ret :: insn_spid :: insn_cease :: insn_wfi :: _ :: _ :: _ :: _ :: Nil =
     DecodeLogic(io.rw.addr << 20, decode_table(0)._2.map(x=>X), decode_table).map(system_insn && _.asBool)
 
   for (io_dec <- io.decode) {
@@ -1087,6 +1090,11 @@ class CSRFile(
     when (usingUser && ret_prv <= PRV.S) {
       reg_mstatus.mprv := false
     }
+  }
+
+  // added to support special instruction spid
+  when (insn_spid) {
+    reg_pid := wdata
   }
 
   io.time := reg_cycle

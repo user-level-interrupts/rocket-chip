@@ -39,7 +39,7 @@ class IntCtrlSigs extends Bundle {
   val wfd = Bool()    // 
   val mul = Bool()
   val div = Bool()
-  val wxd = Bool()    // 
+  val wxd = Bool()    // if writes to a register
   val csr = Bits(width = CSR.SZ)
   val fence_i = Bool()
   val fence = Bool()
@@ -113,6 +113,8 @@ class IDecode(implicit val p: Parameters) extends DecodeConstants
     SCALL->     List(Y,N,N,N,N,N,N,X,N,A2_X,   A1_X,   IMM_X, DW_X,  FN_X,     N,M_X,        N,N,N,N,N,N,N,CSR.I,N,N,N,N),
     SBREAK->    List(Y,N,N,N,N,N,N,X,N,A2_X,   A1_X,   IMM_X, DW_X,  FN_X,     N,M_X,        N,N,N,N,N,N,N,CSR.I,N,N,N,N),
     MRET->      List(Y,N,N,N,N,N,N,X,N,A2_X,   A1_X,   IMM_X, DW_X,  FN_X,     N,M_X,        N,N,N,N,N,N,N,CSR.I,N,N,N,N),
+    // new instruction
+    SPID->      List(Y,N,N,N,N,N,N,N,N,A2_IMM, A1_ZERO,IMM_X, DW_X,  FN_X,     N,M_X,        N,N,N,N,N,N,Y,CSR.I,N,N,N,N),
     WFI->       List(Y,N,N,N,N,N,N,X,N,A2_X,   A1_X,   IMM_X, DW_X,  FN_X,     N,M_X,        N,N,N,N,N,N,N,CSR.I,N,N,N,N),
     CEASE->     List(Y,N,N,N,N,N,N,X,N,A2_X,   A1_X,   IMM_X, DW_X,  FN_X,     N,M_X,        N,N,N,N,N,N,N,CSR.I,N,N,N,N),
     CSRRW->     List(Y,N,N,N,N,N,N,Y,N,A2_ZERO,A1_RS1, IMM_X, DW_XPR,FN_ADD,   N,M_X,        N,N,N,N,N,N,Y,CSR.W,N,N,N,N),
@@ -120,9 +122,7 @@ class IDecode(implicit val p: Parameters) extends DecodeConstants
     CSRRC->     List(Y,N,N,N,N,N,N,Y,N,A2_ZERO,A1_RS1, IMM_X, DW_XPR,FN_ADD,   N,M_X,        N,N,N,N,N,N,Y,CSR.C,N,N,N,N),
     CSRRWI->    List(Y,N,N,N,N,N,N,N,N,A2_IMM, A1_ZERO,IMM_Z, DW_XPR,FN_ADD,   N,M_X,        N,N,N,N,N,N,Y,CSR.W,N,N,N,N),
     CSRRSI->    List(Y,N,N,N,N,N,N,N,N,A2_IMM, A1_ZERO,IMM_Z, DW_XPR,FN_ADD,   N,M_X,        N,N,N,N,N,N,Y,CSR.S,N,N,N,N),
-    CSRRCI->    List(Y,N,N,N,N,N,N,N,N,A2_IMM, A1_ZERO,IMM_Z, DW_XPR,FN_ADD,   N,M_X,        N,N,N,N,N,N,Y,CSR.C,N,N,N,N),
-
-    SPID->      List(Y,N,N,N,N,N,N,N,N,A2_IMM, A1_ZERO,IMM_X, DW_X,  FN_X,     N,M_X,        N,N,N,N,N,N,Y,CSR.I,N,N,N,N))
+    CSRRCI->    List(Y,N,N,N,N,N,N,N,N,A2_IMM, A1_ZERO,IMM_Z, DW_XPR,FN_ADD,   N,M_X,        N,N,N,N,N,N,Y,CSR.C,N,N,N,N))
 }
 
 class FenceIDecode(flushDCache: Boolean)(implicit val p: Parameters) extends DecodeConstants
