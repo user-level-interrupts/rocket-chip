@@ -1030,6 +1030,7 @@ object CSRs {
   val mcause = 0x342
   val mtval = 0x343
   val mip = 0x344
+  val pid = 0x345
   val mnscratch = 0x350
   val mnepc = 0x351
   val mncause = 0x352
@@ -1306,6 +1307,7 @@ object CSRs {
     res += mcause
     res += mtval
     res += mip
+    res += pid
     res += mnscratch
     res += mnepc
     res += mncause
