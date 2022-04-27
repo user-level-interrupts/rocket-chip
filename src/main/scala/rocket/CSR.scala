@@ -376,9 +376,10 @@ class CSRFile(
   reset_dcsr.prv := PRV.M
   val reg_dcsr = Reg(init=reset_dcsr)
 
-  val (supported_interrupts, delegable_interrupts) = {
+  // modified for ULI
+  val (supported_interrupts, delegable_interrupts, u_delegable_interrupts) = {
     val sup = Wire(new MIP)
-    sup.usip := false
+    sup.usip := false // TODO: enable for ULI, along with utip/ueip
     sup.ssip := Bool(usingSupervisor)
     sup.vssip := Bool(usingHypervisor)
     sup.msip := true
@@ -402,8 +403,17 @@ class CSRFile(
     del.mtip := false
     del.meip := false
 
-    (sup.asUInt | supported_high_interrupts, del.asUInt)
+    val u_del = Wire(init=del)
+    u_del.ssip := false
+    u_del.stip := false
+    u_del.seip := false
+    u_del.vssip := false
+    u_del.vstip := false
+    u_del.vseip := false
+
+    (sup.asUInt | supported_high_interrupts, del.asUInt, u_del.asUInt)
   }
+  // end ULI code
   val delegable_exceptions = UInt(Seq(
     Causes.misaligned_fetch,
     Causes.fetch_page_fault,
@@ -434,6 +444,14 @@ class CSRFile(
     Causes.load_page_fault,
     Causes.store_page_fault).map(1 << _).sum)
 
+  // added for ULI
+  val u_delegable_exceptions = UInt(Seq(
+    Causes.breakpoint,
+    Causes.fetch_page_fault,
+    Causes.load_page_fault,
+    Causes.store_page_fault).map(1 << _).sum)
+  // end ULI code
+
   val (hs_delegable_interrupts, mideleg_always_hs) = {
     val always = Wire(new MIP().fromBits(0.U))
     always.vssip := Bool(usingHypervisor)
@@ -460,14 +478,24 @@ class CSRFile(
   val reg_pmp = Reg(Vec(nPMPs, new PMPReg))
 
   val reg_mie = Reg(UInt(width = xLen))
+  // modified for ULI
   val (reg_mideleg, read_mideleg) = {
     val reg = Reg(UInt(xLen.W))
-    (reg, Mux(usingSupervisor, reg & delegable_interrupts | mideleg_always_hs, 0.U))
+    if (!usingSupervisor && usingUser) {
+      (reg, Mux(usingUser, reg & u_delegable_interrupts, 0.U))
+    } else {
+      (reg, Mux(usingSupervisor, reg & delegable_interrupts | mideleg_always_hs, 0.U))
+    }
   }
   val (reg_medeleg, read_medeleg) = {
     val reg = Reg(UInt(xLen.W))
-    (reg, Mux(usingSupervisor, reg & delegable_exceptions, 0.U))
+    if (!usingSupervisor && usingUser) {
+      (reg, Mux(usingUser, reg & u_delegable_interrupts, 0.U))
+    } else {
+      (reg, Mux(usingSupervisor, reg & delegable_exceptions, 0.U))
+    }
   }
+  // end ULI code
   val reg_mip = Reg(new MIP)
   val reg_mepc = Reg(UInt(width = vaddrBitsExtended))
   val reg_mcause = RegInit(0.U(xLen.W))
@@ -539,6 +567,24 @@ class CSRFile(
   val reg_satp = Reg(new PTBR)
   val reg_wfi = withClock(io.ungated_clock) { Reg(init=Bool(false)) }
 
+  // added for ULI
+  // U-mode interrupt and exception CSRs
+  val (reg_sideleg, read_sideleg) = {
+    val reg = Reg(UInt(xLen.W))
+    (reg, Mux(usingSupervisor & usingUser, reg & u_delegable_interrupts, 0.U))
+  }
+  val (reg_sedeleg, read_sedeleg) = {
+    val reg = Reg(UInt(xLen.W))
+    (reg, Mux(usingSupervisor & usingUser, reg & u_delegable_exceptions, 0.U))
+  }
+
+  val reg_uepc = Reg(UInt(width = vaddrBitsExtended))
+  val reg_ucause = Reg(Bits(width = xLen))
+  val reg_utval = Reg(UInt(width = vaddrBitsExtended))
+  val reg_uscratch = Reg(Bits(width = xLen))
+  val reg_utvec = Reg(UInt(width = vaddrBits)) // unsure if should be extended
+  // end ULI code
+
   val reg_fflags = Reg(UInt(width = 5))
   val reg_frm = Reg(UInt(width = 3))
   val reg_vconfig = usingVector.option(Reg(new VConfig))
@@ -608,6 +654,9 @@ class CSRFile(
   val read_mstatus = io.status.asUInt()(xLen-1,0)
   val read_mtvec = formTVec(reg_mtvec).padTo(xLen)
   val read_stvec = formTVec(reg_stvec).sextTo(xLen)
+  // added for ULI
+  val read_utvec = formTVec(reg_utvec).sextTo(xLen)
+  // end ULI code
 
   val read_mapping = LinkedHashMap[Int,Bits](
     CSRs.tselect -> reg_tselect,
@@ -735,6 +784,39 @@ class CSRFile(
     read_mapping += CSRs.medeleg -> read_medeleg
   }
 
+  // added for ULI
+  val uie_mask = {
+    if (usingSupervisor) {
+      read_sideleg & ~(u_delegable_interrupts)
+    } else {
+      read_mideleg & ~(u_delegable_interrupts)
+    }
+  }
+  if (usingUser) {
+    val read_uie = reg_mie & uie_mask
+    val read_uip = read_mip & uie_mask
+    val read_ustatus = Wire(init = 0.U.asTypeOf(new MStatus))
+    read_ustatus.upie := io.status.upie
+    read_ustatus.uie := io.status.uie
+
+    read_mapping += CSRs.ustatus -> (read_ustatus.asUInt())(xLen-1,0)
+    read_mapping += CSRs.uip -> read_uip.asUInt
+    read_mapping += CSRs.uie -> read_uie.asUInt
+    read_mapping += CSRs.uscratch -> reg_uscratch
+    read_mapping += CSRs.ucause -> reg_ucause
+    read_mapping += CSRs.utval -> reg_utval.sextTo(xLen)
+    read_mapping += CSRs.uepc -> readEPC(reg_uepc).sextTo(xLen)
+    read_mapping += CSRs.utvec -> read_utvec
+    if (usingSupervisor) {
+      read_mapping += CSRs.sideleg -> read_sideleg
+      read_mapping += CSRs.sedeleg -> read_sedeleg
+    } else {
+      read_mapping += CSRs.mideleg -> read_mideleg
+      read_mapping += CSRs.medeleg -> read_medeleg
+    }
+  }
+  // end ULI code
+  
   val pmpCfgPerCSR = xLen / new PMPConfig().getWidth
   def pmpCfgIndex(i: Int) = (xLen / 32) * (i / pmpCfgPerCSR)
   if (reg_pmp.nonEmpty) {
@@ -1152,6 +1234,11 @@ class CSRFile(
     val scause_mask = ((BigInt(1) << (xLen-1)) + 31).U /* only implement 5 LSBs and MSB */
     val satp_valid_modes = 0 +: (minPgLevels to pgLevels).map(new PTBR().pgLevelsToMode(_))
 
+    // added for ULI
+    // TODO: decide actual valid values
+    val ucause_mask = ((BigInt(1) << (xLen-1)) + 31).U /* only implement 5 LSBs and MSB */
+    // end ULI code
+
     when (decoded_addr(CSRs.mstatus)) {
       val new_mstatus = new MStatus().fromBits(wdata)
       reg_mstatus.mie := new_mstatus.mie
@@ -1373,6 +1460,36 @@ class CSRFile(
       when (decoded_addr(CSRs.vstval))    { reg_vstval := wdata }
     }
     if (usingUser) {
+      // for ULI
+      when (decoded_addr(CSRs.ustatus)) {
+        val new_ustatus = new MStatus().fromBits(wdata)
+        reg_mstatus.uie := new_ustatus.uie
+        reg_mstatus.upie := new_ustatus.upie
+        // reg_mstatus.upp (previous privilege mode) is implicitly 0
+        // other mstatus fields are not exposed to user level
+      }
+      when (decoded_addr(CSRs.uip)) {
+        // when S-mode is present, sideleg/sedeleg delegate interrupts to U-mode
+        if (usingSupervisor) {
+          val new_uip = new MIP().fromBits((read_mip & ~read_sideleg) | (wdata & read_sideleg))
+          reg_mip.usip := new_uip.usip
+        } else {
+          // otherwise, interrupts are delegated directly from M-mode mideled/medeleg
+          val new_uip = new MIP().fromBits((read_mip & ~read_mideleg) | (wdata & read_mideleg))
+          reg_mip.usip := new_uip.usip
+        }
+      }
+      when (decoded_addr(CSRs.uie))      { reg_mie := (reg_mie & ~uie_mask) | (wdata & uie_mask) }
+      when (decoded_addr(CSRs.uscratch)) { reg_uscratch := wdata }
+      when (decoded_addr(CSRs.uepc))     { reg_uepc := formEPC(wdata) }
+      when (decoded_addr(CSRs.utvec))    { reg_utvec := wdata }
+      when (decoded_addr(CSRs.ucause))   { reg_ucause := wdata & ucause_mask }
+      when (decoded_addr(CSRs.utval))    { reg_utval := wdata }
+      when (decoded_addr(CSRs.mideleg))  { reg_mideleg := wdata }
+      when (decoded_addr(CSRs.medeleg))  { reg_medeleg := wdata }
+      when (decoded_addr(CSRs.sideleg))  { reg_sideleg := wdata }
+      when (decoded_addr(CSRs.sedeleg))  { reg_sedeleg := wdata }
+      // end ULI code
       when (decoded_addr(CSRs.mcounteren)) { reg_mcounteren := wdata }
     }
     if (nBreakpoints > 0) {
