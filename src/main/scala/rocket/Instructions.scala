@@ -972,6 +972,10 @@ object CSRs {
   val vtype = 0xc21
   val vlenb = 0xc22
   val sstatus = 0x100
+  // added for ULI
+  val sedeleg = 0x102
+  val sideleg = 0x103
+  // end ULI code
   val sie = 0x104
   val stvec = 0x105
   val scounteren = 0x106
