@@ -207,6 +207,8 @@ object Instructions {
   def SC_D               = BitPat("b00011????????????011?????0101111")
   def ECALL              = BitPat("b00000000000000000000000001110011")
   def EBREAK             = BitPat("b00000000000100000000000001110011")
+  // Added Instruction
+  def UINTR              = BitPat("b00000000001100000000000001110011")
   def URET               = BitPat("b00000000001000000000000001110011")
   def SRET               = BitPat("b00010000001000000000000001110011")
   def MRET               = BitPat("b00110000001000000000000001110011")

@@ -489,6 +489,7 @@ class CSRFile(
   val read_mtvec = formTVec(reg_mtvec).padTo(xLen)
   val read_stvec = formTVec(reg_stvec).sextTo(xLen)
 
+  // Writeback to SCR
   val read_mapping = LinkedHashMap[Int,Bits](
     CSRs.tselect -> reg_tselect,
     CSRs.tdata1 -> reg_bp(reg_tselect).control.asUInt,
@@ -635,18 +636,21 @@ class CSRFile(
   val wdata = readModifyWriteCSR(io.rw.cmd, io.rw.rdata, io.rw.wdata)
 
   val system_insn = io.rw.cmd === CSR.I
-  val decode_table = Seq(        SCALL->       List(Y,N,N,N,N,N),
-                                 SBREAK->      List(N,Y,N,N,N,N),
-                                 MRET->        List(N,N,Y,N,N,N),
-                                 CEASE->       List(N,N,N,Y,N,N),
-                                 WFI->         List(N,N,N,N,Y,N)) ++
-    usingDebug.option(           DRET->        List(N,N,Y,N,N,N)) ++
-    usingNMI.option(             MNRET->       List(N,N,Y,N,N,N)) ++
-    coreParams.haveCFlush.option(CFLUSH_D_L1-> List(N,N,N,N,N,N)) ++
-    usingSupervisor.option(      SRET->        List(N,N,Y,N,N,N)) ++
-    usingVM.option(              SFENCE_VMA->  List(N,N,N,N,N,Y))
+  val decode_table = Seq(        SCALL->       List(Y,N,N,N,N,N,N),
+                                 SBREAK->      List(N,Y,N,N,N,N,N),
+                                 // Added interrupt instruction with sbreak logic
+                                 UINTR ->      List(N,N,Y,N,N,N,N),     
+                                 MRET->        List(N,N,N,Y,N,N,N),
+                                 CEASE->       List(N,N,N,N,Y,N,N),
+                                 WFI->         List(N,N,N,N,N,Y,N)) ++
+    usingDebug.option(           DRET->        List(N,N,N,Y,N,N,N)) ++
+    usingNMI.option(             MNRET->       List(N,N,N,Y,N,N,N)) ++
+    coreParams.haveCFlush.option(CFLUSH_D_L1-> List(N,N,N,N,N,N,N)) ++
+    usingSupervisor.option(      SRET->        List(N,N,N,Y,N,N,N)) ++
+    usingVM.option(              SFENCE_VMA->  List(N,N,N,N,N,N,Y))
 
-  val insn_call :: insn_break :: insn_ret :: insn_cease :: insn_wfi :: insn_sfence :: Nil =
+  // Added val for insn_uintr
+  val insn_call :: insn_break :: insn_uintr :: insn_ret :: insn_cease :: insn_wfi :: insn_sfence :: Nil =
     DecodeLogic(io.rw.addr << 20, decode_table(0)._2.map(x=>X), decode_table).map(system_insn && _.asBool)
 
   for (io_dec <- io.decode) {
@@ -732,7 +736,8 @@ class CSRFile(
   if (xLen == 32)
     io.status.sd_rv32 := io.status.sd
 
-  val exception = insn_call || insn_break || io.exception
+  // Exception handling
+  val exception = insn_call || insn_break || io.exception || insn_uintr
   assert(PopCount(insn_ret :: insn_call :: insn_break :: io.exception :: Nil) <= 1, "these conditions must be mutually exclusive")
 
   when (insn_wfi && !io.singleStep && !reg_debug) { reg_wfi := true }
@@ -747,6 +752,8 @@ class CSRFile(
   val epc = formEPC(io.pc)
   val noCause :: mCause :: hCause :: sCause :: uCause :: Nil = Enum(5)
   val xcause_dest = Wire(init = noCause)
+
+  // TODO: Document these 4 exceptions
 
   when (exception) {
     when (trapToDebug) {
@@ -775,6 +782,8 @@ class CSRFile(
       reg_mstatus.sie := false
       new_prv := PRV.S
     }.otherwise {
+      // Interrupt handling
+      // Write to correct registers
       reg_mepc := epc
       reg_mcause := cause
       xcause_dest := mCause

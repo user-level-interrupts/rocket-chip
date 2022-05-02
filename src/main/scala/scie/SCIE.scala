@@ -204,3 +204,53 @@ class SCIEPipelined(xLen: Int) extends BlackBox(Map("XLEN" -> xLen)) with HasBla
       |endmodule
      """.stripMargin)
 }
+
+class SCIEInterruptInterface(xLen: Int) extends Bundle {
+  val insn = Input(UInt(SCIE.iLen.W))
+  val rs1 = Input(UInt(xLen.W))
+  val rs2 = Input(UInt(xLen.W))
+  val rd = Output(UInt(xLen.W))
+}
+
+class SCIEInterrupt(xLen: Int) extends BlackBox(Map("XLEN" -> xLen)) with HasBlackBoxInline {
+  val io = IO(new SCIEInterruptInterface(xLen))
+
+  setInline("SCIEInterrupt.v",
+    s"""
+      |module SCIEInterrupt #(parameter XLEN = 32) (
+      |    input  [${SCIE.iLen-1}:0] pc,
+      |    // Replace with ra
+      |    input  [XLEN-1:0] r!,
+      |    input  [XLEN-1:0] r2,
+      |    output [XLEN-1:0] rd);
+      |
+      |  /* This example SCIE implementation provides the following instructions:
+      |
+      |     Major opcode custom-0:
+      |     Funct3 = 0: MIN (rd = rs1 < rs2 ? rs1 : rs2)
+      |     Funct3 = 1: MAX (rd = rs1 > rs2 ? rs1 : rs2)
+      |
+      |     Major opcode custom-1:
+      |     Funct3 = 0: MINI (rd = rs1 < imm[11:0] ? rs1 : imm[11:0])
+      |     Funct3 = 1: MAXI (rd = rs1 > imm[11:0] ? rs1 : imm[11:0])
+      |  */
+      |   
+      |  /* Decode the instruction. */
+      |  wire use_immediate = insn[5];
+      |  wire pick_smaller = !insn[12];
+      |
+      |  /* Mux the operands. */
+      |  wire [XLEN-1:0] immediate = {{(XLEN-12){insn[31]}},  insn[31:20]};
+      |  wire [XLEN-1:0] rhs = use_immediate ? immediate : rs2;
+      |  wire [XLEN-1:0] lhs = rs1;
+      |
+      |  /* Perform the computation. */
+      |  wire lhs_smaller = $$signed(lhs) < $$signed(rhs);
+      |  wire [XLEN-1:0] result = lhs_smaller == pick_smaller ? lhs : rhs;
+      |
+      |  /* Drive the output. */
+      |  assign rd = result;
+      |
+      |endmodule
+     """.stripMargin)
+}

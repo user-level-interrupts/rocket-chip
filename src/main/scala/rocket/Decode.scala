@@ -5,6 +5,7 @@ package freechips.rocketchip.rocket
 import Chisel._
 import scala.collection.mutable.{ArrayBuffer, Map}
 
+// Decode logic for CSRs
 object DecodeLogic
 {
   def term(lit: BitPat) =
