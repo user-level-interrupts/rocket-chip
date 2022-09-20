@@ -479,8 +479,10 @@ class CSRFile(
     case Some(addr) => Reg(init=UInt(addr, mtvecWidth))
     case None => Reg(UInt(width = mtvecWidth))
   }
+  // start ULI
   // process ID register
   val reg_pid = Reg(UInt(width = xLen))
+  // end ULI
 
   val reset_mnstatus = Wire(init=new MNStatus().fromBits(0))
   reset_mnstatus.mpp := PRV.M
@@ -623,7 +625,9 @@ class CSRFile(
     CSRs.mepc -> readEPC(reg_mepc).sextTo(xLen),
     CSRs.mtval -> reg_mtval.sextTo(xLen),
     CSRs.mcause -> reg_mcause,
+    // start ULI
     CSRs.pid -> reg_pid,
+    // end ULI
     CSRs.mhartid -> io.hartid)
 
   val debug_csrs = if (!usingDebug) LinkedHashMap() else LinkedHashMap[Int,Bits](
@@ -1225,8 +1229,9 @@ class CSRFile(
       }
     }
 
-    // Added for new pid register
+    // start ULI
     when (decoded_addr(CSRs.pid))    { reg_pid := wdata }
+    // end ULI
 
     for (((e, c), i) <- (reg_hpmevent zip reg_hpmcounter) zipWithIndex) {
       writeCounter(i + CSR.firstMHPC, c, wdata)
