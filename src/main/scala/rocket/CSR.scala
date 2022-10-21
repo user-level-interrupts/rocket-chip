@@ -378,15 +378,17 @@ class CSRFile(
 
   val (supported_interrupts, delegable_interrupts) = {
     val sup = Wire(new MIP)
-    sup.usip := false
+    // start ULI
+    sup.usip := Bool(usingUser)
     sup.ssip := Bool(usingSupervisor)
     sup.vssip := Bool(usingHypervisor)
     sup.msip := true
-    sup.utip := false
+    sup.utip := Bool(usingUser)
     sup.stip := Bool(usingSupervisor)
     sup.vstip := Bool(usingHypervisor)
     sup.mtip := true
-    sup.ueip := false
+    sup.ueip := Bool(usingUser)
+    // end ULI
     sup.seip := Bool(usingSupervisor)
     sup.vseip := Bool(usingHypervisor)
     sup.meip := true
@@ -397,6 +399,7 @@ class CSRFile(
     sup.lip foreach { _ := true }
     val supported_high_interrupts = if (io.interrupts.buserror.nonEmpty && !usingNMI) UInt(BigInt(1) << CSR.busErrorIntCause) else 0.U
 
+    // all supported interrupts except those that require machine mode priority can be delegated
     val del = Wire(init=sup)
     del.msip := false
     del.mtip := false
@@ -462,7 +465,9 @@ class CSRFile(
   val reg_mie = Reg(UInt(width = xLen))
   val (reg_mideleg, read_mideleg) = {
     val reg = Reg(UInt(xLen.W))
-    (reg, Mux(usingSupervisor, reg & delegable_interrupts | mideleg_always_hs, 0.U))
+    // start ULI
+    (reg, Mux(usingSupervisor | usingUser, reg & delegable_interrupts | mideleg_always_hs, 0.U))
+    // end ULI
   }
   val (reg_medeleg, read_medeleg) = {
     val reg = Reg(UInt(xLen.W))
@@ -541,6 +546,14 @@ class CSRFile(
   val reg_satp = Reg(new PTBR)
   val reg_wfi = withClock(io.ungated_clock) { Reg(init=Bool(false)) }
 
+  // start ULI
+  val reg_uepc = Reg(UInt(width = vaddrBitsExtended))
+  val reg_ucause = Reg(Bits(width = xLen))
+  val reg_utval = Reg(UInt(width = vaddrBitsExtended))
+  val reg_uscratch = Reg(Bits(width = xLen))
+  val reg_utvec = Reg(UInt(width = vaddrBitsExtended))
+  // end ULI
+
   val reg_fflags = Reg(UInt(width = 5))
   val reg_frm = Reg(UInt(width = 3))
   val reg_vconfig = usingVector.option(Reg(new VConfig))
@@ -565,7 +578,7 @@ class CSRFile(
   mip.meip := io.interrupts.meip
   // seip is the OR of reg_mip.seip and the actual line from the PLIC
   io.interrupts.seip.foreach { mip.seip := reg_mip.seip || _ }
-  // Simimlar sort of thing would apply if the PLIC had a VSEIP line:
+  // Similar sort of thing would apply if the PLIC had a VSEIP line:
   //io.interrupts.vseip.foreach { mip.vseip := reg_mip.vseip || _ }
   mip.rocc := io.rocc_interrupt
   val read_mip = mip.asUInt & supported_interrupts
@@ -581,7 +594,11 @@ class CSRFile(
   val m_interrupts = Mux(nmie && (reg_mstatus.prv <= PRV.S || reg_mstatus.mie), ~(~pending_interrupts | read_mideleg), UInt(0))
   val s_interrupts = Mux(nmie && (reg_mstatus.v || reg_mstatus.prv < PRV.S || (reg_mstatus.prv === PRV.S && reg_mstatus.sie)), pending_interrupts & read_mideleg & ~read_hideleg, UInt(0))
   val vs_interrupts = Mux(nmie && (reg_mstatus.v && (reg_mstatus.prv < PRV.S || reg_mstatus.prv === PRV.S && reg_vsstatus.sie)), pending_interrupts & read_hideleg, UInt(0))
-  val (anyInterrupt, whichInterrupt) = chooseInterrupt(Seq(vs_interrupts, s_interrupts, m_interrupts, nmi_interrupts, d_interrupts))
+  // start ULI
+  // TODO: update to account for virtualization, supervisor modes
+  val u_interrupts = Mux(nmie && (reg_mstatus.prv == PRV.U && reg_mstatus.uie), pending_interrupts & read_mideleg, UInt(0))
+  val (anyInterrupt, whichInterrupt) = chooseInterrupt(Seq(u_interrupts, vs_interrupts, s_interrupts, m_interrupts, nmi_interrupts, d_interrupts))
+  // end ULI
   val interruptMSB = BigInt(1) << (xLen-1)
   val interruptCause = UInt(interruptMSB) + (nmiFlag << (xLen-2)) + whichInterrupt
   io.interrupt := (anyInterrupt && !io.singleStep || reg_singleStepped) && !(reg_debug || io.status.cease)
@@ -610,6 +627,9 @@ class CSRFile(
   val read_mstatus = io.status.asUInt()(xLen-1,0)
   val read_mtvec = formTVec(reg_mtvec).padTo(xLen)
   val read_stvec = formTVec(reg_stvec).sextTo(xLen)
+  // start ULI
+  val read_utvec = formTVec(reg_utvec).sextTo(xLen)
+  // end ULI
 
   val read_mapping = LinkedHashMap[Int,Bits](
     CSRs.tselect -> reg_tselect,
@@ -707,6 +727,7 @@ class CSRFile(
   val sie_mask = {
     val sgeip_mask = WireInit(0.U.asTypeOf(new MIP))
     sgeip_mask.sgeip := true
+    // 1 if delegable from M-mode and not to be delegated to a lower privilege level
     read_mideleg & ~(hs_delegable_interrupts | sgeip_mask.asUInt)
   }
   if (usingSupervisor) {
@@ -738,6 +759,34 @@ class CSRFile(
     read_mapping += CSRs.mideleg -> read_mideleg
     read_mapping += CSRs.medeleg -> read_medeleg
   }
+
+  // start ULI
+  val uie_mask = {
+    // TODO: handle 2-step delegation with S-mode/sideleg
+    read_mideleg
+  }
+  if (usingUser) {
+    val read_uie = reg_mie & uie_mask
+    val read_uip = read_mip & uie_mask
+    val read_ustatus = Wire(init = 0.U.asTypeOf(new MStatus))
+    read_ustatus.upie := io.status.upie
+    read_ustatus.uie := io.status.uie
+
+    read_mapping += CSRs.ustatus -> (read_ustatus.asUInt())(xLen-1,0)
+    read_mapping += CSRs.uip -> read_uip.asUInt
+    read_mapping += CSRs.uie -> read_uie.asUInt
+    read_mapping += CSRs.uscratch -> reg_uscratch
+    read_mapping += CSRs.ucause -> reg_ucause
+    read_mapping += CSRs.utval -> reg_utval.sextTo(xLen)
+    read_mapping += CSRs.uepc -> readEPC(reg_uepc).sextTo(xLen)
+    read_mapping += CSRs.utvec -> read_utvec
+
+    if (!usingSupervisor) {
+      read_mapping += CSRs.mideleg -> read_mideleg
+      read_mapping += CSRs.medeleg -> read_medeleg
+    }
+  }
+  // end ULI
 
   val pmpCfgPerCSR = xLen / new PMPConfig().getWidth
   def pmpCfgIndex(i: Int) = (xLen / 32) * (i / pmpCfgPerCSR)
@@ -907,15 +956,22 @@ class CSRFile(
   val debugEntry = p(DebugModuleKey).map(_.debugEntry).getOrElse(BigInt(0x800))
   val debugException = p(DebugModuleKey).map(_.debugException).getOrElse(BigInt(0x808))
   val debugTVec = Mux(reg_debug, Mux(insn_break, debugEntry.U, debugException.U), debugEntry.U)
-  val delegate = Bool(usingSupervisor) && reg_mstatus.prv <= PRV.S && Mux(cause(xLen-1), read_mideleg(cause_lsbs), read_medeleg(cause_lsbs))
-  val delegateVS = reg_mstatus.v && delegate && Mux(cause(xLen-1), read_hideleg(cause_lsbs), read_hedeleg(cause_lsbs))
+  // start ULI
+  val delegateS = Bool(usingSupervisor) && reg_mstatus.prv <= PRV.S && Mux(cause(xLen-1), read_mideleg(cause_lsbs), read_medeleg(cause_lsbs))
+  // TODO: add handling for sideleg/sedeleg
+  val delegateU = Bool(usingUser) && reg_mstatus.prv == PRV.U && Mux(cause(xLen-1), read_mideleg(cause_lsbs), read_medeleg(cause_lsbs))
+  val delegate = delegateS || delegateU
+  val delegateVS = reg_mstatus.v && delegateS && Mux(cause(xLen-1), read_hideleg(cause_lsbs), read_hedeleg(cause_lsbs))
+  // end ULI
   def mtvecBaseAlign = 2
   def mtvecInterruptAlign = {
     require(reg_mip.getWidth <= xLen)
     log2Ceil(xLen)
   }
   val notDebugTVec = {
-    val base = Mux(delegate, Mux(delegateVS, read_vstvec, read_stvec), read_mtvec)
+    // start ULI
+    val base = Mux(delegate, Mux(delegateU, read_utvec, Mux(delegateVS, read_vstvec, read_stvec)), read_mtvec)
+    // end ULI
     val interruptOffset = cause(mtvecInterruptAlign-1, 0) << mtvecBaseAlign
     val interruptVec = Cat(base >> (mtvecInterruptAlign + mtvecBaseAlign), interruptOffset)
     val doVector = base(0) && cause(cause.getWidth-1) && (cause_lsbs >> mtvecInterruptAlign) === 0
@@ -1033,7 +1089,10 @@ class CSRFile(
     val en = exception && (supported_interrupts & (BigInt(1) << i).U) =/= 0 && cause === (BigInt(1) << (xLen - 1)).U + i
     val delegable = (delegable_interrupts & (BigInt(1) << i).U) =/= 0
     property.cover(en && !delegate, s"INTERRUPT_M_$i")
-    property.cover(en && delegable && delegate, s"INTERRUPT_S_$i")
+    // start ULI
+    property.cover(en && delegable && delegateS, s"INTERRUPT_S_$i")
+    property.cover(en && delegable && delegateU, s"INTERRUPT_U_$i")
+    // end ULI
   }
   for (i <- 0 until xLen) {
     val supported_exceptions: BigInt = 0x8fe |
@@ -1087,6 +1146,7 @@ class CSRFile(
       reg_mstatus.v := usingHypervisor && reg_mstatus.mpv && reg_mstatus.mpp <= PRV.S
       io.evec := readEPC(reg_mepc)
     }
+    // TODO: handle user return
 
     new_prv := ret_prv
     when (usingUser && ret_prv <= PRV.S) {
