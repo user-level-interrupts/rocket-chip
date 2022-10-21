@@ -1,3 +1,7 @@
+## Additional Documentation
+
+[Live LaTeX version of RISC_V_ULI__Rocket_Chip_support.pdf](https://www.overleaf.com/2216991747nmrgpqdyzcrj)
+
 ## Quick Setup with AWS
 
 ### AWS Instance
