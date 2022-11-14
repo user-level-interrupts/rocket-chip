@@ -936,6 +936,9 @@ object CSRs {
   val ucause = 0x42
   val utval = 0x43
   val uip = 0x44
+  // start ULI
+  val pid = 0x45
+  // end ULI
   val cycle = 0xc00
   val time = 0xc01
   val instret = 0xc02
@@ -1030,7 +1033,6 @@ object CSRs {
   val mcause = 0x342
   val mtval = 0x343
   val mip = 0x344
-  val pid = 0x345
   val mnscratch = 0x350
   val mnepc = 0x351
   val mncause = 0x352
@@ -1213,6 +1215,9 @@ object CSRs {
     res += ucause
     res += utval
     res += uip
+    // start ULI
+    res += pid
+    // end ULI
     res += cycle
     res += time
     res += instret
@@ -1307,7 +1312,6 @@ object CSRs {
     res += mcause
     res += mtval
     res += mip
-    res += pid
     res += mnscratch
     res += mnepc
     res += mncause

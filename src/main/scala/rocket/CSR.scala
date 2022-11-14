@@ -1268,6 +1268,13 @@ class CSRFile(
       if (usingHypervisor) {
         reg_mip.vssip := new_mip.vssip
       }
+      // start ULI
+      if (usingUser) {
+        reg_mip.usip := new_mip.usip
+        reg_mip.utip := new_mip.utip
+        reg_mip.ueip := new_mip.ueip
+      }
+      // end ULI
     }
     when (decoded_addr(CSRs.mie))      { reg_mie := wdata & supported_interrupts }
     when (decoded_addr(CSRs.mepc))     { reg_mepc := formEPC(wdata) }
@@ -1438,6 +1445,25 @@ class CSRFile(
       when (decoded_addr(CSRs.vstval))    { reg_vstval := wdata }
     }
     if (usingUser) {
+      // start ULI
+      when (decoded_addr(CSRs.ustatus)) {
+        val new_ustatus = new MStatus().fromBits(wdata)
+        reg_mstatus.uie := new_ustatus.uie
+        reg_mstatus.upie := new_ustatus.upie
+      }
+      when (decoded_addr(CSRs.uip)) {
+        val new_uip = new MIP().fromBits((read_mip & ~read_mideleg) | (wdata & read_mideleg))
+        reg_mip.usip := new_uip.usip
+      }
+      when (decoded_addr(CSRs.uie))      { reg_mie := (reg_mie & ~uie_mask) | (wdata & uie_mask) }
+      when (decoded_addr(CSRs.uscratch)) { reg_uscratch := wdata }
+      when (decoded_addr(CSRs.uepc))     { reg_uepc := formEPC(wdata) }
+      when (decoded_addr(CSRs.utvec))    { reg_utvec := wdata }
+      when (decoded_addr(CSRs.ucause))   { reg_ucause := wdata } // add mask
+      when (decoded_addr(CSRs.utval))    { reg_utval := wdata }
+      // when (decoded_addr(CSRs.mideleg))  { reg_mideleg := wdata }
+      // when (decoded_addr(CSRs.medeleg))  { reg_medeleg := wdata }
+      // end ULI
       when (decoded_addr(CSRs.mcounteren)) { reg_mcounteren := wdata }
     }
     if (nBreakpoints > 0) {
