@@ -1016,6 +1016,10 @@ object CSRs {
   val sintstatus = 0x146
   val sscratchcsw = 0x148
   val sscratchcswl = 0x149
+// start ULI
+  val sedeleg = 0x102
+  val sideleg = 0x103
+// end ULI
   val mtvt = 0x307
   val mnxti = 0x345
   val mintstatus = 0x346
@@ -1295,6 +1299,10 @@ object CSRs {
     res += sintstatus
     res += sscratchcsw
     res += sscratchcswl
+// start ULI
+    res += sedeleg
+    res += sideleg
+// end ULI
     res += mtvt
     res += mnxti
     res += mintstatus

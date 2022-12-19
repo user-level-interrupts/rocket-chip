@@ -449,6 +449,22 @@ class CSRFile(
     (deleg.asUInt, always.asUInt)
   }
 
+  // start ULI
+  val u_delegable_interrupts = {
+    val deleg = Wire(new MIP().fromBits(0.U))
+    deleg.usip := Bool(usingUser)
+    deleg.utip := Bool(usingUser)
+    deleg.ueip := Bool(usingUser)
+
+    deleg.asUInt
+  }
+
+  val u_delegable_exceptions = UInt(Seq(
+    Causes.misaligned_load,
+    Causes.user_ecall,
+    Causes.store_page_fault).map(1 << _).sum)
+  // end ULI
+
   val reg_debug = Reg(init=Bool(false))
   val reg_dpc = Reg(UInt(width = vaddrBitsExtended))
   val reg_dscratch = Reg(UInt(width = xLen))
@@ -465,9 +481,7 @@ class CSRFile(
   val reg_mie = Reg(UInt(width = xLen))
   val (reg_mideleg, read_mideleg) = {
     val reg = Reg(UInt(xLen.W))
-    // start ULI
-    (reg, Mux(usingSupervisor | usingUser, reg & delegable_interrupts | mideleg_always_hs, 0.U))
-    // end ULI
+    (reg, Mux(usingSupervisor, reg & delegable_interrupts | mideleg_always_hs, 0.U))
   }
   val (reg_medeleg, read_medeleg) = {
     val reg = Reg(UInt(xLen.W))
@@ -538,6 +552,17 @@ class CSRFile(
   val reg_vstval = Reg(UInt(width = vaddrBitsExtended))
   val reg_vsatp = Reg(new PTBR)
 
+  // start ULI
+  val (reg_sideleg, read_sideleg) = {
+    val reg = Reg(UInt(xLen.W))
+    (reg, Mux(usingSupervisor & usingUser, reg & u_delegable_interrupts, 0.U))
+  }
+  val (reg_sedeleg, read_sedeleg) = {
+    val reg = Reg(UInt(xLen.W))
+    // TODO: not yet delegable
+    (reg, Mux(usingSupervisor & usingUser, 0.U, 0.U))
+  }
+  // end ULI
   val reg_sepc = Reg(UInt(width = vaddrBitsExtended))
   val reg_scause = Reg(Bits(width = xLen))
   val reg_stval = Reg(UInt(width = vaddrBitsExtended))
@@ -592,11 +617,11 @@ class CSRFile(
     io.interrupts.buserror.map(_ << CSR.rnmiBEUCause).getOrElse(0.U),
     !io.interrupts.debug && nmi.rnmi && reg_rnmie)).getOrElse(0.U, false.B)
   val m_interrupts = Mux(nmie && (reg_mstatus.prv <= PRV.S || reg_mstatus.mie), ~(~pending_interrupts | read_mideleg), UInt(0))
-  val s_interrupts = Mux(nmie && (reg_mstatus.v || reg_mstatus.prv < PRV.S || (reg_mstatus.prv === PRV.S && reg_mstatus.sie)), pending_interrupts & read_mideleg & ~read_hideleg, UInt(0))
-  val vs_interrupts = Mux(nmie && (reg_mstatus.v && (reg_mstatus.prv < PRV.S || reg_mstatus.prv === PRV.S && reg_vsstatus.sie)), pending_interrupts & read_hideleg, UInt(0))
   // start ULI
-  // TODO: update to account for virtualization, supervisor modes
-  val u_interrupts = Mux(nmie && (reg_mstatus.prv == PRV.U && reg_mstatus.uie), pending_interrupts & read_mideleg, UInt(0))
+  val s_interrupts = Mux(nmie && (reg_mstatus.v || reg_mstatus.prv < PRV.S || (reg_mstatus.prv === PRV.S && reg_mstatus.sie)), pending_interrupts & read_mideleg & ~read_hideleg & ~read_sideleg, UInt(0))
+  val vs_interrupts = Mux(nmie && (reg_mstatus.v && (reg_mstatus.prv < PRV.S || reg_mstatus.prv === PRV.S && reg_vsstatus.sie)), pending_interrupts & read_hideleg & ~(read_mideleg & read_sideleg), UInt(0))
+  // TODO: update to account for virtualization?
+  val u_interrupts = Mux(nmie && (reg_mstatus.prv == PRV.U && reg_mstatus.uie), pending_interrupts & read_mideleg & read_sideleg, UInt(0))
   val (anyInterrupt, whichInterrupt) = chooseInterrupt(Seq(u_interrupts, vs_interrupts, s_interrupts, m_interrupts, nmi_interrupts, d_interrupts))
   // end ULI
   val interruptMSB = BigInt(1) << (xLen-1)
@@ -728,7 +753,9 @@ class CSRFile(
     val sgeip_mask = WireInit(0.U.asTypeOf(new MIP))
     sgeip_mask.sgeip := true
     // 1 if delegable from M-mode and not to be delegated to a lower privilege level
-    read_mideleg & ~(hs_delegable_interrupts | sgeip_mask.asUInt)
+    // start ULI
+    read_mideleg & ~(hs_delegable_interrupts | sgeip_mask.asUInt) & ~(read_sideleg & u_delegable_interrupts)
+    // end ULI
   }
   if (usingSupervisor) {
     val read_sie = reg_mie & sie_mask
@@ -762,8 +789,7 @@ class CSRFile(
 
   // start ULI
   val uie_mask = {
-    // TODO: handle 2-step delegation with S-mode/sideleg
-    read_mideleg
+    read_mideleg & read_sideleg & u_delegable_interrupts
   }
   if (usingUser) {
     val read_uie = reg_mie & uie_mask
@@ -780,11 +806,8 @@ class CSRFile(
     read_mapping += CSRs.utval -> reg_utval.sextTo(xLen)
     read_mapping += CSRs.uepc -> readEPC(reg_uepc).sextTo(xLen)
     read_mapping += CSRs.utvec -> read_utvec
-
-    if (!usingSupervisor) {
-      read_mapping += CSRs.mideleg -> read_mideleg
-      read_mapping += CSRs.medeleg -> read_medeleg
-    }
+    read_mapping += CSRs.sideleg -> read_sideleg
+    read_mapping += CSRs.sedeleg -> read_sedeleg
   }
   // end ULI
 
@@ -959,7 +982,7 @@ class CSRFile(
   // start ULI
   val delegateS = Bool(usingSupervisor) && reg_mstatus.prv <= PRV.S && Mux(cause(xLen-1), read_mideleg(cause_lsbs), read_medeleg(cause_lsbs))
   // TODO: add handling for sideleg/sedeleg
-  val delegateU = Bool(usingUser) && reg_mstatus.prv == PRV.U && Mux(cause(xLen-1), read_mideleg(cause_lsbs), read_medeleg(cause_lsbs))
+  val delegateU = Bool(usingUser) && reg_mstatus.prv == PRV.U && Mux(cause(xLen-1), read_sideleg(cause_lsbs), read_sedeleg(cause_lsbs))
   val delegate = delegateS || delegateU
   val delegateVS = reg_mstatus.v && delegateS && Mux(cause(xLen-1), read_hideleg(cause_lsbs), read_hedeleg(cause_lsbs))
   // end ULI
@@ -1452,7 +1475,7 @@ class CSRFile(
         reg_mstatus.upie := new_ustatus.upie
       }
       when (decoded_addr(CSRs.uip)) {
-        val new_uip = new MIP().fromBits((read_mip & ~read_mideleg) | (wdata & read_mideleg))
+        val new_uip = new MIP().fromBits((read_mip & ~read_sideleg) | (wdata & read_sideleg))
         reg_mip.usip := new_uip.usip
       }
       when (decoded_addr(CSRs.uie))      { reg_mie := (reg_mie & ~uie_mask) | (wdata & uie_mask) }
@@ -1461,8 +1484,8 @@ class CSRFile(
       when (decoded_addr(CSRs.utvec))    { reg_utvec := wdata }
       when (decoded_addr(CSRs.ucause))   { reg_ucause := wdata } // add mask
       when (decoded_addr(CSRs.utval))    { reg_utval := wdata }
-      // when (decoded_addr(CSRs.mideleg))  { reg_mideleg := wdata }
-      // when (decoded_addr(CSRs.medeleg))  { reg_medeleg := wdata }
+      when (decoded_addr(CSRs.sideleg))  { reg_sideleg := wdata }
+      when (decoded_addr(CSRs.sedeleg))  { reg_sedeleg := wdata }
       // end ULI
       when (decoded_addr(CSRs.mcounteren)) { reg_mcounteren := wdata }
     }
