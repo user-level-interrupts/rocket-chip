@@ -980,10 +980,11 @@ class CSRFile(
   val debugException = p(DebugModuleKey).map(_.debugException).getOrElse(BigInt(0x808))
   val debugTVec = Mux(reg_debug, Mux(insn_break, debugEntry.U, debugException.U), debugEntry.U)
   // start ULI
-  val delegate = Bool(usingSupervisor) && reg_mstatus.prv <= PRV.S && Mux(cause(xLen-1), read_mideleg(cause_lsbs), read_medeleg(cause_lsbs))
+  val delegateS = Bool(usingSupervisor) && reg_mstatus.prv <= PRV.S && Mux(cause(xLen-1), read_mideleg(cause_lsbs), read_medeleg(cause_lsbs))
   // TODO: add handling for sideleg/sedeleg
-  val delegateU = delegate && Bool(usingUser) && reg_mstatus.prv == PRV.U && Mux(cause(xLen-1), read_sideleg(cause_lsbs), read_sedeleg(cause_lsbs))
-  val delegateVS = reg_mstatus.v && delegate && Mux(cause(xLen-1), read_hideleg(cause_lsbs), read_hedeleg(cause_lsbs))
+  val delegateU = Bool(usingUser) && reg_mstatus.prv == PRV.U && Mux(cause(xLen-1), read_sideleg(cause_lsbs), read_sedeleg(cause_lsbs))
+  val delegate = delegateS || delegateU
+  val delegateVS = reg_mstatus.v && delegateS && Mux(cause(xLen-1), read_hideleg(cause_lsbs), read_hedeleg(cause_lsbs))
   // end ULI
   def mtvecBaseAlign = 2
   def mtvecInterruptAlign = {
@@ -1112,7 +1113,7 @@ class CSRFile(
     val delegable = (delegable_interrupts & (BigInt(1) << i).U) =/= 0
     property.cover(en && !delegate, s"INTERRUPT_M_$i")
     // start ULI
-    property.cover(en && delegable && delegate, s"INTERRUPT_S_$i")
+    property.cover(en && delegable && delegateS, s"INTERRUPT_S_$i")
     property.cover(en && delegable && delegateU, s"INTERRUPT_U_$i")
     // end ULI
   }
