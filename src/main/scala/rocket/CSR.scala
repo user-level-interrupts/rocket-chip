@@ -21,10 +21,10 @@ class MStatus extends Bundle {
   val wfi = Bool()
   val isa = UInt(width = 32)
 
-  val dprv = UInt(width = PRV.SZ) // effective prv for data accesses
-  val dv = Bool() // effective v for data accesses
-  val prv = UInt(width = PRV.SZ)
-  val v = Bool()
+  val dprv = UInt(width = PRV.SZ) // privilege when debug is enabled
+  val dv = Bool() // virtualization when debug is enabled
+  val prv = UInt(width = PRV.SZ) // current privilege level
+  val v = Bool() // virtualization enabled
 
   val sd = Bool()
   val zero2 = UInt(width = 23)
@@ -41,20 +41,20 @@ class MStatus extends Bundle {
   val tvm = Bool()
   val mxr = Bool()
   val sum = Bool()
-  val mprv = Bool()
+  val mprv = Bool() // effective privilege for data accesses
   val xs = UInt(width = 2)
   val fs = UInt(width = 2)
   val mpp = UInt(width = 2)
   val vs = UInt(width = 2)
   val spp = UInt(width = 1)
-  val mpie = Bool()
+  val mpie = Bool() // machine pending interrupt vector
   val ube = Bool()
-  val spie = Bool()
-  val upie = Bool()
-  val mie = Bool()
-  val hie = Bool()
-  val sie = Bool()
-  val uie = Bool()
+  val spie = Bool() // supervisor pending interrupt vector
+  val upie = Bool() // user pending interrupt vector
+  val mie = Bool() // machine interrupt enable
+  val hie = Bool() // hypervisor interrupt enable
+  val sie = Bool() // supervisor interrupt enable
+  val uie = Bool() // user interrupt enable
 }
 
 class MNStatus extends Bundle {
@@ -621,7 +621,7 @@ class CSRFile(
   val s_interrupts = Mux(nmie && (reg_mstatus.v || reg_mstatus.prv < PRV.S || (reg_mstatus.prv === PRV.S && reg_mstatus.sie)), pending_interrupts & read_mideleg & ~read_hideleg & ~read_sideleg, UInt(0))
   val vs_interrupts = Mux(nmie && (reg_mstatus.v && (reg_mstatus.prv < PRV.S || reg_mstatus.prv === PRV.S && reg_vsstatus.sie)), pending_interrupts & read_hideleg & ~(read_mideleg & read_sideleg), UInt(0))
   // TODO: update to account for virtualization?
-  val u_interrupts = Mux(nmie && (reg_mstatus.prv == PRV.U && reg_mstatus.uie), pending_interrupts & read_mideleg & read_sideleg, UInt(0))
+  val u_interrupts = Mux(nmie && (reg_mstatus.prv === PRV.U && reg_mstatus.uie), pending_interrupts & read_mideleg & read_sideleg, UInt(0))
   val (anyInterrupt, whichInterrupt) = chooseInterrupt(Seq(u_interrupts, vs_interrupts, s_interrupts, m_interrupts, nmi_interrupts, d_interrupts))
   // end ULI
   val interruptMSB = BigInt(1) << (xLen-1)
@@ -982,7 +982,7 @@ class CSRFile(
   // start ULI
   val delegateS = Bool(usingSupervisor) && reg_mstatus.prv <= PRV.S && Mux(cause(xLen-1), read_mideleg(cause_lsbs), read_medeleg(cause_lsbs))
   // TODO: add handling for sideleg/sedeleg
-  val delegateU = Bool(usingUser) && reg_mstatus.prv == PRV.U && Mux(cause(xLen-1), read_sideleg(cause_lsbs), read_sedeleg(cause_lsbs))
+  val delegateU = Bool(usingUser) && reg_mstatus.prv === PRV.U && Mux(cause(xLen-1), read_sideleg(cause_lsbs), read_sedeleg(cause_lsbs))
   val delegate = delegateS || delegateU
   val delegateVS = reg_mstatus.v && delegateS && Mux(cause(xLen-1), read_hideleg(cause_lsbs), read_hedeleg(cause_lsbs))
   // end ULI
@@ -1071,6 +1071,15 @@ class CSRFile(
         reg_mnstatus.mpp := trimPrivilege(reg_mstatus.prv)
         new_prv := PRV.M
       }
+    // start ULI
+    }.elsewhen (delegateU && nmie) {
+      reg_uepc := epc
+      reg_ucause := cause
+      reg_utval := io.tval
+      reg_mstatus.upie := reg_mstatus.uie
+      reg_mstatus.uie := false
+      new_prv := PRV.U
+    // end ULI
     }.elsewhen (delegateVS && nmie) {
       reg_mstatus.v := true
       reg_vsstatus.spp := reg_mstatus.prv
@@ -1080,7 +1089,7 @@ class CSRFile(
       reg_vsstatus.spie := reg_vsstatus.sie
       reg_vsstatus.sie := false
       new_prv := PRV.S
-    }.elsewhen (delegate && nmie) {
+    }.elsewhen (delegateS && nmie) {
       reg_mstatus.v := false
       reg_hstatus.spvp := Mux(reg_mstatus.v, reg_mstatus.prv(0),reg_hstatus.spvp)
       reg_hstatus.gva := io.gva
@@ -1247,6 +1256,10 @@ class CSRFile(
       if (usingUser) {
         reg_mstatus.mprv := new_mstatus.mprv
         reg_mstatus.mpp := legalizePrivilege(new_mstatus.mpp)
+        // start ULI
+        reg_mstatus.upie := new_mstatus.upie
+        reg_mstatus.uie := new_mstatus.uie
+        // end ULI
         if (usingSupervisor) {
           reg_mstatus.spp := new_mstatus.spp
           reg_mstatus.spie := new_mstatus.spie
@@ -1639,6 +1652,7 @@ class CSRFile(
     t.valid := io.retire > i || t.exception
     t.insn := insn
     t.iaddr := io.pc
+    // question ULI
     t.priv := Cat(reg_debug, reg_mstatus.prv)
     t.cause := cause
     t.interrupt := cause(xLen-1)
