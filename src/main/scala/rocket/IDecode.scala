@@ -174,6 +174,16 @@ class HypervisorDecode(implicit val p: Parameters) extends DecodeConstants
     HSV_W->     List(Y,N,N,N,N,N,Y,Y,N,A2_ZERO, A1_RS1, IMM_I, DW_XPR, FN_ADD, Y,M_XWR,      N,N,N,N,N,N,N,CSR.I,N,N,N,N))
 }
 
+// start ULI
+// required for recognizing a new legal instruction in the decode stage
+class UDecode(implicit val p: Parameters) extends DecodeConstants
+{
+  val table: Array[(BitPat, List[BitPat])] = Array(
+    // decoding here is identical to both SRET and MRET
+    URET->      List(Y,N,N,N,N,N,N,X,N,A2_X,   A1_X,   IMM_X, DW_X,  FN_X,     N,M_X,        N,N,N,N,N,N,N,CSR.I,N,N,N,N))
+}
+// end ULI
+
 class DebugDecode(implicit val p: Parameters) extends DecodeConstants
 {
   val table: Array[(BitPat, List[BitPat])] = Array(

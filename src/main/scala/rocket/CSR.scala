@@ -900,6 +900,10 @@ class CSRFile(
     usingNMI.option(             MNRET->       List(N,N,Y,N,N,N,N,N,N)) ++
     coreParams.haveCFlush.option(CFLUSH_D_L1-> List(N,N,N,N,N,N,N,N,N)) ++
     usingSupervisor.option(      SRET->        List(N,N,Y,N,N,N,N,N,N)) ++
+    // start ULI
+    // the Y corresponds to the insn_ret boolean flag below, indicating a return instruction
+    usingUser.option(            URET->        List(N,N,Y,N,N,N,N,N,N)) ++
+    // end ULI
     usingVM.option(              SFENCE_VMA->  List(N,N,N,N,N,Y,N,N,N)) ++
     usingHypervisor.option(      HFENCE_VVMA-> List(N,N,N,N,N,N,Y,N,N)) ++
     usingHypervisor.option(      HFENCE_GVMA-> List(N,N,N,N,N,N,N,Y,N)) ++
@@ -947,7 +951,10 @@ class CSRFile(
     }
     io_dec.system_illegal := !csr_addr_legal && !is_hlsv ||
       is_wfi && !allow_wfi ||
-      is_ret && !allow_sret ||
+      // start ULI
+      // make URET instruction legal
+      is_ret && addr(8) && !allow_sret ||
+      // end ULI
       is_ret && addr(10) && addr(7) && !reg_debug ||
       (is_sfence || is_hfence_gvma) && !allow_sfence_vma ||
       is_hfence_vvma && !allow_hfence_vvma ||
@@ -1142,7 +1149,17 @@ class CSRFile(
 
   when (insn_ret) {
     val ret_prv = WireInit(UInt(), DontCare)
-    when (Bool(usingSupervisor) && !io.rw.addr(9)) {
+    // start ULI
+    // io.rw.addr is bits 20-31 of the instruction bitpattern. The various RET instructions
+    // share a high bit io.rw.addr(1), and are differentiated by bits 7-10.
+    // see Instructions.scala for instruction bitpatterns.
+    when (Bool(usingUser) && !io.rw.addr(8)) {
+      reg_mstatus.uie := reg_mstatus.upie
+      reg_mstatus.upie := true
+      ret_prv := legalizePrivilege(PRV.U)
+      io.evec := readEPC(reg_uepc)
+    }.elsewhen (Bool(usingSupervisor) && !io.rw.addr(9)) {
+    // end ULI
       when (!reg_mstatus.v) {
         reg_mstatus.sie := reg_mstatus.spie
         reg_mstatus.spie := true
@@ -1178,7 +1195,6 @@ class CSRFile(
       reg_mstatus.v := usingHypervisor && reg_mstatus.mpv && reg_mstatus.mpp <= PRV.S
       io.evec := readEPC(reg_mepc)
     }
-    // TODO: handle user return
 
     new_prv := ret_prv
     when (usingUser && ret_prv <= PRV.S) {

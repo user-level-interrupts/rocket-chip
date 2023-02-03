@@ -184,6 +184,9 @@ class Rocket(tile: RocketTile)(implicit p: Parameters) extends CoreModule()(p)
     (usingSupervisor.option(new SDecode)) ++:
     (usingHypervisor.option(new HypervisorDecode)) ++:
     ((usingHypervisor && (xLen == 64)).option(new Hypervisor64Decode)) ++:
+    // start ULI
+    (usingUser.option(new UDecode)) ++:
+    // end ULI
     (usingDebug.option(new DebugDecode)) ++:
     (usingNMI.option(new NMIDecode)) ++:
     Seq(new FenceIDecode(tile.dcache.flushOnFenceI)) ++:
